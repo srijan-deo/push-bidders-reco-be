@@ -23,8 +23,8 @@ steps:
       - "--task-timeout=86400"
 
 substitutions:
-  _SERVICE: push-bidders-reco
+  _SERVICE: push-bidders-reco-be
   _REGION: us-west4
-  _AR_REPO: push-bidders-reco
-  _IMAGE_NAME: push-bidders-reco
+  _AR_REPO: push-bidders-reco-be
+  _IMAGE_NAME: push-bidders-reco-be
   _RUNTIME_SA: cprtqa-stratanalytics-sp1-bq2@cprtqa-strategicanalytics-sp1.iam.gserviceaccount.com
