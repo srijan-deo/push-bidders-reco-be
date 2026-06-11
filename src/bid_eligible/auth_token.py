@@ -1,3 +1,5 @@
+import os
+import json
 import time
 import requests
 
@@ -74,14 +76,18 @@ class ClientCredentialsOAuth2Session(requests.Session):
 
 
 def get_access_token():
-    """
-    Returns a fresh OAuth access token.
-    """
+
+    secret_json = os.getenv("BE_API_SECRET")
+
+    if not secret_json:
+        raise ValueError("BE_API_SECRET environment variable is missing")
+
+    creds = json.loads(secret_json)
 
     requests_oauth = ClientCredentialsOAuth2Session(
         token_url="https://c-auth-qa4.copart.com/employee/oauth/token",
-        client_id="CLIENT_ID",
-        client_secret="CLIENT_SECRET"
+        client_id=creds["CLIENT_ID"],
+        client_secret=creds["CLIENT_SECRET"]
     )
 
     return requests_oauth._oauth2_session.token["access_token"]
