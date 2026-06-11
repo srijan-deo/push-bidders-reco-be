@@ -91,3 +91,5 @@ select lot_nbr
 from ranked
 where rnk = 2
 )
+lots
+    on a1.lot = lots.lot_nbr
