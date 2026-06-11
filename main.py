@@ -5,7 +5,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 import time
 import pandas as pd
-from src.data.data_ingestion import ingest_dataset, get_bq_client
+from src.data.data_ingestion import ingest_dataset
 from src.data.data_preprocessing import preprocess_all
 from src.model.one_to_one import refine_recommendations_parallel_per_buyer_fast, save_processed_data as save_one_to_one_data
 #from memory_profiler import profile
@@ -14,7 +14,15 @@ from collections import defaultdict
 import time
 
 from src.bid_eligible.auth_token import get_access_token
-from src.bid_eligible.bid_eligibility import run_bid_eligibility
+from src.bid_eligible.bid_eligibility import run_bid_eligibility, upload_to_bigquery
+
+def get_bq_client():
+    cred_path = "/secrets/reco-test-v2"  # <-- FILE, not folder
+
+    if not os.path.isfile(cred_path):
+        raise RuntimeError(f"Service account JSON not found at {cred_path}")
+
+    return bigquery.Client.from_service_account_json(cred_path)
 
 def log_time(step_name, start_time):
     duration = time.time() - start_time
@@ -31,9 +39,8 @@ def main():
     step = "STEP 1️⃣: BigQuery Ingestion"
     print(f"\n{step}")
     start = time.time()
-    #cred_path = "/Users/srdeo/Documents/Recommendations/cprtpr-datastewards-sp1-614d7e297848 (1).json"
-    cred_path = "/Users/srdeo/Documents/secrets/stewardapp-prbq-key 1.json"
-    client = get_bq_client(cred_path)
+    #cred_path = "/Users/srdeo/Documents/secrets/stewardapp-prbq-key 1.json"
+    client = get_bq_client()
 
     tasks = [
         ("Active Buyers", "src/queries/active_buyers.sql", "data/raw/active_buyers.csv"),
@@ -44,7 +51,7 @@ def main():
     ]
     for name, query_path, output_path in tasks:
         print(f"Ingesting: {name}")
-        #ingest_dataset(client, query_path, output_path)
+        ingest_dataset(client, query_path, output_path)
     log_time(step, start)
 
     # ───────────────────────────────────────────────────────────────
@@ -87,9 +94,29 @@ def main():
         lot_col="recommended_lot"
     )
 
-    push_bidders_reco_be.to_excel("data/final/push_bidders_reco_be_reco.xlsx", index=False)
+    #push_bidders_reco_be.to_excel("data/final/push_bidders_reco_be_reco.xlsx", index=False)
+
+    client = bigquery.Client.from_service_account_json("/secrets/reco-test-v2") 
+    try:
+        client.get_table(
+            "cprtpr-dataplatform-sp1.strat_analytics.member_future_reco_pushbidder"
+        )
+        print("✅ Table access OK")
+    except Exception as e:
+        print("❌ Table access FAILED")
+        raise e
+
+    upload_to_bigquery(
+        dataframe=push_bidders_reco_be,
+        table_id="strat_analytics.member_future_reco_pushbidder",
+        project_id="cprtpr-dataplatform-sp1",
+        client = client
+    )
+    log_time(step, start)
+
     print("🏁 ALL STEPS COMPLETED")
     log_time("TOTAL PIPELINE", overall_start)
+
 
 if __name__ == "__main__":
     main()

@@ -131,3 +131,21 @@ def run_bid_eligibility(
     df["created_at"] = datetime.now().strftime("%Y-%m-%d")
 
     return df
+
+def upload_to_bigquery(dataframe, table_id, project_id, client):
+    print(f"\n📤 Uploading data to BigQuery table `{table_id}`...")
+
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_APPEND",
+        autodetect=True,
+    )
+
+    job = client.load_table_from_dataframe(
+        dataframe,
+        destination=f"{project_id}.{table_id}",
+        job_config=job_config,
+    )
+
+    job.result()  # wait
+
+    print(f"✅ Data successfully appended to `{table_id}` in `{project_id}`")
