@@ -18,7 +18,7 @@ steps:
     - "--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE_NAME}:${SHORT_SHA}"
     - "--region=${_REGION}"
     - "--service-account=${_RUNTIME_SA}"
-    - "--set-secrets=/secrets/reco-test-v2=reco-test-v2:latest"
+    - "--set-secrets=/secrets/reco-test-v2=reco-test-v2:latest,BE_API_SECRET=be-api:latest"
     - "--max-retries=0"
     - "--task-timeout=86400"
 
