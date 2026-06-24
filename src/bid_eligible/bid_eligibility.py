@@ -85,7 +85,7 @@ def process_row(idx, row, access_token):
 
     result = safe_check(buyer, lot, access_token)
 
-    return idx, "TRUE" if result is True else "FALSE"
+    return idx, True if result is True else False
 
 
 def run_bid_eligibility(
@@ -104,7 +104,7 @@ def run_bid_eligibility(
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
 
-    df[output_col] = "FALSE"
+    df[output_col] = False
 
     print("Running bid eligibility check with max 10 requests/sec...")
 
@@ -128,7 +128,7 @@ def run_bid_eligibility(
 
     print("DONE!")
 
-    df["created_at"] = datetime.now().strftime("%Y-%m-%d")
+    df["created_at"] = datetime.now().date()
 
     return df
 
