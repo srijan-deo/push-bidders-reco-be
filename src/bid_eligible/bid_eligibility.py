@@ -128,7 +128,7 @@ def run_bid_eligibility(
 
     print("DONE!")
 
-    df["created_at"] = datetime.now().date()
+    df["created_at"] = datetime.now(ZoneInfo("Asia/Kolkata")).date()
 
     return df
 
