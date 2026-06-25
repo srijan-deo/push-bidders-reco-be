@@ -5,6 +5,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from google.cloud import bigquery
+from zoneinfo import ZoneInfo
 
 API_BASE = "https://c-bideligibility-ws.copart.com/v1/ineligibility-reason-for-dynamic-lot-details"
 
