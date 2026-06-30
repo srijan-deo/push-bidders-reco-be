@@ -178,8 +178,10 @@ def clean_lids_data(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].fillna(1)
 
     df['lids_version'] = df['lids_version'].str.strip('"')
-    most_common_version = df['lids_version'].mode()[0]
-    df['lids_version'] = df['lids_version'].fillna(most_common_version)
+    mode_val = df['lids_version'].mode()
+
+    if not mode_val.empty:
+        df['lids_version'] = df['lids_version'].fillna(mode_val.iloc[0])
 
     # Step 3: Parse versions for proper sorting
     df['parsed_version'] = df['lids_version'].apply(parse)
