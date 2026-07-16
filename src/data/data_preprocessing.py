@@ -39,8 +39,16 @@ def fill_missing_grp_model(df: pd.DataFrame) -> pd.DataFrame:
 # ==============================================================
 def clean_active_buyers(df: pd.DataFrame) -> pd.DataFrame:
 
-    df['mbr_lic_type'] = df['mbr_lic_type'].fillna(df['mbr_lic_type'].mode()[0])
-    df['mbr_state'] = df['mbr_state'].fillna(df['mbr_state'].mode()[0])
+    # PATCH: guarded against empty .mode() (was: df['mbr_lic_type'].fillna(df['mbr_lic_type'].mode()[0])) to avoid KeyError: 0 when column is all-NaN
+    mode_val = df['mbr_lic_type'].mode()
+    if not mode_val.empty:
+        df['mbr_lic_type'] = df['mbr_lic_type'].fillna(mode_val.iloc[0])
+
+    # PATCH: guarded against empty .mode() (was: df['mbr_state'].fillna(df['mbr_state'].mode()[0])) to avoid KeyError: 0 when column is all-NaN
+    mode_val = df['mbr_state'].mode()
+    if not mode_val.empty:
+        df['mbr_state'] = df['mbr_state'].fillna(mode_val.iloc[0])
+
     df['mbr_lic_type'] = df['mbr_lic_type'].replace('Automotive Related Business', 'General Business')
 
     df = df.groupby(['lot_year', 'lot_make_cd'], group_keys=False).apply(_fill_grp_model_year_make)
@@ -63,8 +71,16 @@ def clean_active_buyers(df: pd.DataFrame) -> pd.DataFrame:
 # ==============================================================
 def clean_non_active_buyers(df: pd.DataFrame) -> pd.DataFrame:
 
-    df['mbr_lic_type'] = df['mbr_lic_type'].fillna(df['mbr_lic_type'].mode()[0])
-    df['mbr_state'] = df['mbr_state'].fillna(df['mbr_state'].mode()[0])
+    # PATCH: guarded against empty .mode() (was: df['mbr_lic_type'].fillna(df['mbr_lic_type'].mode()[0])) to avoid KeyError: 0 when column is all-NaN
+    mode_val = df['mbr_lic_type'].mode()
+    if not mode_val.empty:
+        df['mbr_lic_type'] = df['mbr_lic_type'].fillna(mode_val.iloc[0])
+
+    # PATCH: guarded against empty .mode() (was: df['mbr_state'].fillna(df['mbr_state'].mode()[0])) to avoid KeyError: 0 when column is all-NaN
+    mode_val = df['mbr_state'].mode()
+    if not mode_val.empty:
+        df['mbr_state'] = df['mbr_state'].fillna(mode_val.iloc[0])
+
     df['mbr_lic_type'] = df['mbr_lic_type'].replace('Automotive Related Business', 'General Business')
     df = df.rename(columns={'mbr_lic_type': 'buyer_type'})
 
@@ -247,5 +263,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
