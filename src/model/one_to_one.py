@@ -146,7 +146,8 @@ def recommend_lots_for_buyer_fast(
     fast_indices,
     eligibility,
     active_buyers=None,
-    top_k=6
+    top_k=6,
+    min_similarity=0.7  # added: min cosine-similarity a fallback tier must clear to be accepted
 ):
     """
     Same logic/order:
@@ -200,7 +201,7 @@ def recommend_lots_for_buyer_fast(
         col for col in buyer_lots_df.columns
         if col.endswith("Damage") or col.endswith("Detected")
     ]
-    base_cols = ["lot_nbr", "acv"] + damage_cols
+    base_cols = ["lot_nbr", "acv", "repair_cost"] + damage_cols  # added: repair_cost now included in cosine similarity
 
     IDX_YMM = fast_indices["IDX_YMM"]
     IDX_YEAR_MM = fast_indices["IDX_YEAR_MM"]
@@ -232,8 +233,33 @@ def recommend_lots_for_buyer_fast(
     # Indexed matching helper
     # --------------------------------------------------
     def get_top_matches(input_vec, year, make, model, k=1):
-        candidates = None
-        source = None
+
+        # added: extracted the old inline similarity-ranking block (previously
+        # run once at the very end) into a reusable per-tier scorer
+        def score_candidates(candidates):
+            candidates = candidates[base_cols]
+            candidate_vecs = candidates[["acv", "repair_cost"] + damage_cols].to_numpy()  # added: repair_cost
+
+            similarities = safe_cosine_similarity_with_zero_handling(
+                candidate_vecs,
+                input_vec.reshape(1, -1)
+            )
+
+            scored = candidates.assign(cosine_similarity=similarities)
+            return scored.nlargest(k, "cosine_similarity")
+
+        # added: each fallback tier now scores itself and is rejected (falls
+        # through to the next tier) unless its best match >= min_similarity.
+        # enforce_threshold=False is used only for the GLOBAL tier (exempt).
+        def try_tier(subset, source_name, enforce_threshold=True):
+            if subset is None or subset.empty:
+                return None
+            top = score_candidates(subset)
+            if top.empty:
+                return None
+            if enforce_threshold and top["cosine_similarity"].iloc[0] < min_similarity:
+                return None
+            return top.to_dict("records"), source_name
 
         # --------------------------------------------------
         # 1️⃣ YMM + STATE + TITLE
@@ -248,147 +274,127 @@ def recommend_lots_for_buyer_fast(
                     sub = sub[(sub["lot_state"].isin([s])) & (sub["lot_title"].isin([t]))]
                     temp_idxs.extend(sub.index.tolist())
 
-        candidates = get_candidates_from_idxs(temp_idxs)
-        if candidates is not None:
-            source = "YMM+STATE+TITLE"
+        result = try_tier(get_candidates_from_idxs(temp_idxs), "YMM+STATE+TITLE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 2️⃣ YEAR ±2 + MM + STATE + TITLE
         # --------------------------------------------------
-        if candidates is None:
-            temp_idxs = []
-            for yr in range(year - 2, year + 3):
-                temp_idxs.extend(IDX_YEAR_MM.get((yr, make, model), []))
+        temp_idxs = []
+        for yr in range(year - 2, year + 3):
+            temp_idxs.extend(IDX_YEAR_MM.get((yr, make, model), []))
 
-            subset = get_candidates_from_idxs(temp_idxs)
-            if subset is not None:
-                subset = subset[
-                    subset["lot_state"].isin(lot_states) &
-                    subset["lot_title"].isin(lot_titles)
-                ]
-                if not subset.empty:
-                    candidates = subset
-                    source = "YEAR±2+MM+STATE+TITLE"
+        subset = get_candidates_from_idxs(temp_idxs)
+        if subset is not None:
+            subset = subset[
+                subset["lot_state"].isin(lot_states) &
+                subset["lot_title"].isin(lot_titles)
+            ]
+        result = try_tier(subset, "YEAR±2+MM+STATE+TITLE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 3️⃣ YMM + BE
         # --------------------------------------------------
-        if candidates is None:
-            subset = get_candidates_from_idxs(IDX_YMM.get((year, make, model), []))
-            if subset is not None:
-                subset = be_filter(subset)
-                if subset is not None and not subset.empty:
-                    candidates = subset
-                    source = "YMM+BE"
+        subset = get_candidates_from_idxs(IDX_YMM.get((year, make, model), []))
+        if subset is not None:
+            subset = be_filter(subset)
+        result = try_tier(subset, "YMM+BE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 4️⃣ YEAR ±2 + MM + BE (TITLE PRIORITY)
         # --------------------------------------------------
-        if candidates is None:
-            temp_idxs = []
-            for yr in range(year - 2, year + 3):
-                temp_idxs.extend(IDX_YEAR_MM.get((yr, make, model), []))
+        temp_idxs = []
+        for yr in range(year - 2, year + 3):
+            temp_idxs.extend(IDX_YEAR_MM.get((yr, make, model), []))
 
-            subset = get_candidates_from_idxs(temp_idxs)
-            if subset is not None:
-                subset = be_filter(subset)
-                if subset is not None and not subset.empty:
-                    subset = subset[subset["_title_type"].isin(buyer_title_types)]
-                    if not subset.empty:
-                        candidates = subset
-                        source = "YEAR±2+MM+BE_TITLE"
+        subset = get_candidates_from_idxs(temp_idxs)
+        if subset is not None:
+            subset = be_filter(subset)
+            if subset is not None and not subset.empty:
+                subset = subset[subset["_title_type"].isin(buyer_title_types)]
+        result = try_tier(subset, "YEAR±2+MM+BE_TITLE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 5️⃣ YEAR ±2 + MM + BE
         # --------------------------------------------------
-        if candidates is None:
-            temp_idxs = []
-            for yr in range(year - 2, year + 3):
-                temp_idxs.extend(IDX_YEAR_MM.get((yr, make, model), []))
+        temp_idxs = []
+        for yr in range(year - 2, year + 3):
+            temp_idxs.extend(IDX_YEAR_MM.get((yr, make, model), []))
 
-            subset = get_candidates_from_idxs(temp_idxs)
-            if subset is not None:
-                subset = be_filter(subset)
-                if subset is not None and not subset.empty:
-                    candidates = subset
-                    source = "YEAR±2+MM+BE"
+        subset = get_candidates_from_idxs(temp_idxs)
+        if subset is not None:
+            subset = be_filter(subset)
+        result = try_tier(subset, "YEAR±2+MM+BE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 6️⃣ MM + STATE + TITLE
         # --------------------------------------------------
-        if candidates is None:
-            temp_idxs = IDX_MM.get((make, model), [])
-            subset = get_candidates_from_idxs(temp_idxs)
-            if subset is not None:
-                subset = subset[
-                    subset["lot_state"].isin(lot_states) &
-                    subset["lot_title"].isin(lot_titles)
-                ]
-                if not subset.empty:
-                    candidates = subset
-                    source = "MM+STATE+TITLE"
+        temp_idxs = IDX_MM.get((make, model), [])
+        subset = get_candidates_from_idxs(temp_idxs)
+        if subset is not None:
+            subset = subset[
+                subset["lot_state"].isin(lot_states) &
+                subset["lot_title"].isin(lot_titles)
+            ]
+        result = try_tier(subset, "MM+STATE+TITLE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 7️⃣ MM + BE
         # --------------------------------------------------
-        if candidates is None:
-            subset = get_candidates_from_idxs(IDX_MM.get((make, model), []))
-            if subset is not None:
-                subset = be_filter(subset)
-                if subset is not None and not subset.empty:
-                    candidates = subset
-                    source = "MM+BE"
+        subset = get_candidates_from_idxs(IDX_MM.get((make, model), []))
+        if subset is not None:
+            subset = be_filter(subset)
+        result = try_tier(subset, "MM+BE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 8️⃣ STATE + TITLE
         # --------------------------------------------------
-        if candidates is None:
-            temp_idxs = []
-            for s in lot_states:
-                for t in lot_titles:
-                    temp_idxs.extend(IDX_STATE_TITLE.get((s, t), []))
+        temp_idxs = []
+        for s in lot_states:
+            for t in lot_titles:
+                temp_idxs.extend(IDX_STATE_TITLE.get((s, t), []))
 
-            subset = get_candidates_from_idxs(temp_idxs)
-            if subset is not None and not subset.empty:
-                candidates = subset
-                source = "STATE+TITLE"
+        subset = get_candidates_from_idxs(temp_idxs)
+        result = try_tier(subset, "STATE+TITLE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
         # 9️⃣ BE
         # --------------------------------------------------
-        if candidates is None:
-            subset = filter_used(upcoming_df_prepared)
-            if subset is not None:
-                subset = be_filter(subset)
-                if subset is not None and not subset.empty:
-                    candidates = subset
-                    source = "BE"
+        subset = filter_used(upcoming_df_prepared)
+        if subset is not None:
+            subset = be_filter(subset)
+        result = try_tier(subset, "BE")  # edited: now threshold-gated via try_tier
+        if result is not None:
+            return result
 
         # --------------------------------------------------
-        # 🔟 GLOBAL
+        # 🔟 GLOBAL (exempt from similarity threshold)
         # --------------------------------------------------
-        if candidates is None:
-            subset = filter_used(upcoming_df_prepared)
-            if subset is None:
-                return [], "GLOBAL"
-            candidates = subset
-            source = "GLOBAL"
+        subset = filter_used(upcoming_df_prepared)
+        if subset is None:
+            return [], "GLOBAL"
 
-        # --------------------------------------------------
-        # Similarity ranking
-        # --------------------------------------------------
-        candidates = candidates[base_cols]
-        candidate_vecs = candidates[["acv"] + damage_cols].to_numpy()
+        # added: enforce_threshold=False -> GLOBAL is the only tier exempt from min_similarity
+        result = try_tier(subset, "GLOBAL", enforce_threshold=False)
+        if result is not None:
+            return result
 
-        similarities = safe_cosine_similarity_with_zero_handling(
-            candidate_vecs,
-            input_vec.reshape(1, -1)
-        )
-
-        candidates = candidates.assign(cosine_similarity=similarities)
-        top = candidates.nlargest(k, "cosine_similarity")
-
-        return top.to_dict("records"), source
+        return [], "GLOBAL"
 
     # --------------------------------------------------
     # STEP 1: Per original lot
@@ -401,7 +407,7 @@ def recommend_lots_for_buyer_fast(
         if original_lot in used_original_lots:
             continue
 
-        input_vec = np.array([[row["acv"]] + row[damage_cols].tolist()])
+        input_vec = np.array([[row["acv"], row["repair_cost"]] + row[damage_cols].tolist()])  # added: repair_cost
         year, make, model = row["lot_year"], row["lot_make_cd"], row["grp_model"]
 
         top_matches, src = get_top_matches(input_vec, year, make, model)
@@ -423,7 +429,7 @@ def recommend_lots_for_buyer_fast(
     # --------------------------------------------------
     if len(results) < top_k:
         most_recent = buyer_lots_df.sort_values("bid_dttm", ascending=False).iloc[0]
-        input_vec = np.array([[most_recent["acv"]] + most_recent[damage_cols].tolist()])
+        input_vec = np.array([[most_recent["acv"], most_recent["repair_cost"]] + most_recent[damage_cols].tolist()])  # added: repair_cost
         year, make, model = most_recent["lot_year"], most_recent["lot_make_cd"], most_recent["grp_model"]
         original_lot = int(most_recent["original_lot"])
 
@@ -475,7 +481,8 @@ def refine_recommendations_parallel_per_buyer_fast(
     upcoming_df,
     be_logic,
     active_buyers=None,
-    batch_size=25
+    batch_size=25,
+    min_similarity=0.7  # added: passed through to recommend_lots_for_buyer_fast
 ):
     # --------------------------------------------------
     # Normalize input reco_df once
@@ -519,7 +526,8 @@ def refine_recommendations_parallel_per_buyer_fast(
                     fast_indices=fast_indices,
                     eligibility=eligibility,
                     active_buyers=active_buyers,
-                    top_k=6
+                    top_k=6,
+                    min_similarity=min_similarity  # added
                 )
                 results.extend(out)
             except Exception as e:
