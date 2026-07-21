@@ -27,7 +27,9 @@ def fill_missing_grp_model(df: pd.DataFrame) -> pd.DataFrame:
     3. Drop remaining rows where grp_model is still NaN
     """
     df = df.groupby(['lot_year', 'lot_make_cd'], group_keys=False).apply(_fill_grp_model_year_make)
+    df = df.reset_index(drop=True)
     df = df.groupby(['lot_make_cd'], group_keys=False).apply(_fill_grp_model_make)
+    df = df.reset_index(drop=True)
     df = df.dropna(subset=['grp_model'])
     return df
 
@@ -52,7 +54,9 @@ def clean_active_buyers(df: pd.DataFrame) -> pd.DataFrame:
     df['mbr_lic_type'] = df['mbr_lic_type'].replace('Automotive Related Business', 'General Business')
 
     df = df.groupby(['lot_year', 'lot_make_cd'], group_keys=False).apply(_fill_grp_model_year_make)
+    df = df.reset_index(drop=True)
     df = df.groupby(['lot_make_cd'], group_keys=False).apply(_fill_grp_model_make)
+    df = df.reset_index(drop=True)
     df = df.dropna(subset=['grp_model'])
 
     df.loc[df['lot_title'].str.upper().str.strip() == 'NON-REPAIRABLE', 'lot_title'] = 'SALVAGE TITLE'
@@ -110,6 +114,7 @@ def clean_popular_lots(popular_df: pd.DataFrame) -> pd.DataFrame:
     popular_df = popular_df.groupby('grp_model', group_keys=False).apply(
         _fill_grp_model_make
     )
+    popular_df = popular_df.reset_index(drop=True)
 
     popular_df['median_acv'] = popular_df['median_acv'].mask(
         popular_df['median_acv'] <= 0,
@@ -171,7 +176,9 @@ def clean_upcoming_lots(df: pd.DataFrame) -> pd.DataFrame:
         df['damage_type_desc'] = df['damage_type_desc'].fillna(mode_val[0])
 
     df = df.groupby(['lot_year', 'lot_make_cd'], group_keys=False).apply(_fill_grp_model_year_make)
+    df = df.reset_index(drop=True)
     df = df.groupby(['lot_make_cd'], group_keys=False).apply(_fill_grp_model_make)
+    df = df.reset_index(drop=True)
     df = df.dropna(subset=['grp_model'])
 
     df.loc[df['lot_title'].str.upper().str.strip() == 'NON-REPAIRABLE', 'lot_title'] = 'SALVAGE TITLE'
